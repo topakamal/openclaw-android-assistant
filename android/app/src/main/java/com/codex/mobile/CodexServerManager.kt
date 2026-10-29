@@ -714,8 +714,102 @@ H3
     }
 
     /**
+     * Read optional Mercury custom-provider settings from $HOME/.mercury.env.
+     * Lines: MERCURY_ENDPOINT=... and MERCURY_API_KEY=...
+     */
+    private fun readMercuryEnv(): Map<String, String> {
+        val paths = BootstrapInstaller.getPaths(context)
+        val envFile = File(paths.homeDir, ".mercury.env")
+        if (!envFile.exists()) return emptyMap()
+        val out = mutableMapOf<String, String>()
+        for (line in envFile.readLines()) {
+            val t = line.trim()
+            if (t.isEmpty() || t.startsWith("#")) continue
+            val idx = t.indexOf('=')
+            if (idx > 0) out[t.substring(0, idx).trim()] = t.substring(idx + 1).trim()
+        }
+        if (out["MERCURY_ENDPOINT"].isNullOrBlank() || out["MERCURY_API_KEY"].isNullOrBlank()) {
+            return emptyMap()
+        }
+        return out
+    }
+
+    fun isMercuryConfigured(): Boolean = readMercuryEnv().isNotEmpty()
+
+    /**
+     * Write OpenClaw config routing the default agent through a custom
+     * OpenAI-compatible endpoint (Mercury) instead of Codex+ChatGPT.
+     */
+    private fun writeMercuryConfig(env: Map<String, String>) {
+        val paths = BootstrapInstaller.getPaths(context)
+        val openclawDir = File(paths.homeDir, ".openclaw")
+        openclawDir.mkdirs()
+
+        val configFile = File(openclawDir, "openclaw.json")
+        val configJson = """
+            |{
+            |  "meta": {
+            |    "lastTouchedVersion": "2026.2.21-2",
+            |    "lastTouchedAt": "${java.time.Instant.now()}"
+            |  },
+            |  "commands": {
+            |    "native": "auto",
+            |    "nativeSkills": "auto",
+            |    "restart": true,
+            |    "ownerDisplay": "raw"
+            |  },
+            |  "gateway": {
+            |    "mode": "local",
+            |    "controlUi": {
+            |      "enabled": true,
+            |      "allowedOrigins": ["http://127.0.0.1:$OPENCLAW_CONTROL_UI_PORT", "http://localhost:$OPENCLAW_CONTROL_UI_PORT"],
+            |      "allowInsecureAuth": true,
+            |      "dangerouslyDisableDeviceAuth": true
+            |    },
+            |    "auth": {
+            |      "mode": "none"
+            |    }
+            |  },
+            |  "agents": {
+            |    "defaults": {
+            |      "model": {
+            |        "primary": "openai/mercury-3"
+            |      }
+            |    }
+            |  }
+            |}
+        """.trimMargin()
+        configFile.writeText(configJson)
+        Log.i(TAG, "Wrote OpenClaw config (Mercury) to $configFile")
+
+        val apiKey = env["MERCURY_API_KEY"]!!
+        val json = """
+            |{
+            |  "version": 1,
+            |  "profiles": {
+            |    "openai:mercury": {
+            |      "type": "api_key",
+            |      "provider": "openai",
+            |      "key": "$apiKey",
+            |      "source": "env",
+            |      "createdAt": "${java.time.Instant.now()}"
+            |    }
+            |  },
+            |  "order": ["openai:mercury"]
+            |}
+        """.trimMargin()
+        val home = paths.homeDir
+        val agentDir = "$home/.openclaw/agents/main/agent"
+        File(agentDir).mkdirs()
+        File("$home/.openclaw/auth-profiles.json").writeText(json)
+        File("$agentDir/auth-profiles.json").writeText(json)
+        Log.i(TAG, "Wrote Mercury auth-profiles.json (global + agent)")
+    }
+
+    /**
      * Write openclaw.json (gateway auth=none + dangerouslyDisableDeviceAuth)
      * and auth-profiles.json (OpenAI token from existing Codex login).
+     * If a Mercury custom endpoint is configured, route there instead.
      * auth.mode is "none" because the Control UI's device-token
      * negotiation can fail on fresh installs when no device token is
      * stored, causing token_missing rejections.  The combination of
@@ -723,6 +817,11 @@ H3
      * lets any local client connect without authentication.
      */
     fun configureOpenClawAuth() {
+        val mercury = readMercuryEnv()
+        if (mercury.isNotEmpty()) {
+            writeMercuryConfig(mercury)
+            return
+        }
         val paths = BootstrapInstaller.getPaths(context)
         val prefix = paths.prefixDir
         val openclawDir = File(paths.homeDir, ".openclaw")
@@ -1461,7 +1560,7 @@ WEOF
         val bionicCompat = "${paths.homeDir}/.openclaw-android/patches/bionic-compat.js"
         val bionicCompatOpt = if (File(bionicCompat).exists()) " -r $bionicCompat" else ""
 
-        return mapOf(
+        val env = mutableMapOf(
             "PREFIX" to paths.prefixDir,
             "HOME" to paths.homeDir,
             "PATH" to "${paths.prefixDir}/bin:${paths.prefixDir}/bin/applets:/system/bin",
@@ -1490,5 +1589,14 @@ WEOF
             "NODE_OPTIONS" to "--openssl-config=${paths.prefixDir}/etc/tls/openssl.cnf --unhandled-rejections=warn$bionicCompatOpt",
             "CONTAINER" to "1",
         )
+        // Mercury custom provider: route the openai provider to the configured
+        // endpoint instead of api.openai.com. Without this, MERCURY_ENDPOINT
+        // was validated but never applied, so API-key requests still hit OpenAI.
+        val mercury = readMercuryEnv()
+        if (mercury.isNotEmpty()) {
+            env["OPENAI_BASE_URL"] = mercury["MERCURY_ENDPOINT"]!!
+            env["OPENCLAW_MERCURY_ENABLED"] = "1"
+        }
+        return env
     }
 }
