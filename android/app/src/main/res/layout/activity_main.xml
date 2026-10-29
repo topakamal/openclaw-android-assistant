@@ -10,6 +10,22 @@
         android:layout_height="match_parent"
         android:visibility="gone" />
 
+    <TextView
+        android:id="@+id/settingsButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="12dp"
+        android:layout_marginEnd="12dp"
+        android:text="⚙"
+        android:textSize="22sp"
+        android:textColor="#e2e8f0"
+        android:background="#33000000"
+        android:padding="10dp"
+        android:clickable="true"
+        android:focusable="true"
+        android:contentDescription="Custom endpoint settings" />
+
     <LinearLayout
         android:id="@+id/loadingOverlay"
         android:layout_width="match_parent"
