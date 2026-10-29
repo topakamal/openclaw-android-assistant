@@ -1123,10 +1123,32 @@ H3
                     line = reader.readLine()
                 }
             }.start()
-            Thread.sleep(1800)
-            return true
+
+            // Wait until the port actually accepts connections (or process dies).
+            var ok = false
+            for (attempt in 1..15) {
+                if (!proc.isAlive) break
+                try {
+                    java.net.Socket("127.0.0.1", MINICHAT_PORT).use { ok = true }
+                    if (ok) break
+                } catch (_: Exception) {
+                }
+                Thread.sleep(400)
+            }
+            if (ok) return true
+
+            // Process died or never listened — surface the real reason.
+            val errFile = File(paths.homeDir, "minichat/error.log")
+            if (errFile.exists()) {
+                val reason = errFile.readText().trim()
+                if (reason.isNotEmpty()) {
+                    throw IllegalStateException("Chat server failed to start: $reason")
+                }
+            }
+            throw IllegalStateException("Chat server exited before listening (see logcat [minichat])")
         } catch (e: Exception) {
             Log.e(TAG, "minichat server failed to start", e)
+            if (e is IllegalStateException) throw e
             return false
         }
     }
