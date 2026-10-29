@@ -748,8 +748,8 @@ H3
         val configFile = File(openclawDir, "openclaw.json")
         val providerId = env["MERCURY_PROVIDER"]?.ifBlank { "inception" } ?: "inception"
         val modelId = env["MERCURY_MODEL"]?.ifBlank { "mercury-3" } ?: "mercury-3"
-        val apiKey = env["MERCURY_API_KEY"]!!
-        val endpoint = env["MERCURY_ENDPOINT"]!!
+        val mercuryApiKey = env["MERCURY_API_KEY"]!!
+        val mercuryEndpoint = env["MERCURY_ENDPOINT"]!!
         val configJson = """
             |{
             |  "meta": {
@@ -785,8 +785,8 @@ H3
             |    "mode": "merge",
             |    "providers": {
             |      "$providerId": {
-            |        "baseUrl": "$endpoint",
-            |        "apiKey": "$apiKey",
+            |        "baseUrl": "$mercuryEndpoint",
+            |        "apiKey": "$mercuryApiKey",
             |        "api": "openai-completions",
             |        "models": [
             |          { "id": "$modelId", "name": "Mercury ${modelId}" }
