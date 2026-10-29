@@ -20,6 +20,7 @@ class CodexServerManager(private val context: Context) {
         private const val TAG = "CodexServerManager"
         const val SERVER_PORT = 18923
         private const val PROXY_PORT = 18924
+        const val MINICHAT_PORT = 18925
         private const val CODEX_VERSION = "0.104.0"
         const val OPENCLAW_GATEWAY_PORT = 18789
         const val OPENCLAW_CONTROL_UI_PORT = 19001
@@ -28,6 +29,7 @@ class CodexServerManager(private val context: Context) {
     private var serverProcess: Process? = null
     private var proxyProcess: Process? = null
     private var openClawGatewayProcess: Process? = null
+    private var minichatProcess: Process? = null
     private var openClawControlUiProcess: Process? = null
 
     val isRunning: Boolean
@@ -1054,6 +1056,90 @@ H3
      * configured custom endpoint), so no Codex server is required.
      */
     fun controlUiBaseUrl(): String = "http://127.0.0.1:$OPENCLAW_CONTROL_UI_PORT"
+
+    /**
+     * Copy the bundled minichat server (server.js + index.html) from APK
+     * assets into $HOME/minichat/.
+     */
+    private fun installMinichatAssets(): Boolean {
+        return try {
+            val paths = BootstrapInstaller.getPaths(context)
+            val targetDir = File(paths.homeDir, "minichat")
+            targetDir.mkdirs()
+            copyAssetToFile("minichat/server.js", File(targetDir, "server.js"))
+            copyAssetToFile("minichat/index.html", File(targetDir, "index.html"))
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to install minichat assets", e)
+            false
+        }
+    }
+
+    private fun copyAssetToFile(asset: String, target: File) {
+        context.assets.open(asset).use { input ->
+            target.outputStream().use { output -> input.copyTo(output) }
+        }
+    }
+
+    /**
+     * Start the self-contained custom-endpoint chat server. It does not
+     * depend on Codex or OpenClaw; it only needs Node.js (installed during
+     * setup) and the Mercury custom-endpoint env.
+     */
+    fun startMinichatServer(): Boolean {
+        val paths = BootstrapInstaller.getPaths(context)
+        val serverJs = File(paths.homeDir, "minichat/server.js")
+        if (!serverJs.exists() && !installMinichatAssets()) {
+            Log.e(TAG, "minichat server.js missing")
+            return false
+        }
+        if (!serverJs.exists()) return false
+
+        val env = buildEnvironment(paths).toMutableMap()
+        env["MINICHAT_PORT"] = MINICHAT_PORT.toString()
+        val mercury = readMercuryEnv()
+        if (mercury.isNotEmpty()) {
+            env["MERCURY_ENDPOINT"] = mercury["MERCURY_ENDPOINT"]!!
+            env["MERCURY_API_KEY"] = mercury["MERCURY_API_KEY"]!!
+            env["MERCURY_MODEL"] = mercury["MERCURY_MODEL"] ?: "mercury-3"
+        }
+
+        val shell = "${paths.prefixDir}/bin/sh"
+        val cmd = "node ${serverJs.absolutePath} 2>&1"
+        val pb = ProcessBuilder(shell, "-c", cmd)
+        pb.environment().clear()
+        pb.environment().putAll(env)
+        pb.directory(File(paths.homeDir))
+        pb.redirectErrorStream(true)
+
+        try {
+            val proc = pb.start()
+            minichatProcess = proc
+            Thread {
+                val reader = BufferedReader(InputStreamReader(proc.inputStream))
+                var line = reader.readLine()
+                while (line != null) {
+                    Log.d(TAG, "[minichat] $line")
+                    line = reader.readLine()
+                }
+            }.start()
+            Thread.sleep(1800)
+            return true
+        } catch (e: Exception) {
+            Log.e(TAG, "minichat server failed to start", e)
+            return false
+        }
+    }
+
+    fun stopMinichatServer() {
+        try {
+            minichatProcess?.destroy()
+        } catch (_: Exception) {
+        }
+        minichatProcess = null
+    }
+
+    fun minichatBaseUrl(): String = "http://127.0.0.1:$MINICHAT_PORT"
 
     /**
      * Start a lightweight Node.js static file server to serve the OpenClaw
