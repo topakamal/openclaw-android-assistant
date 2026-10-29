@@ -150,6 +150,15 @@ const server = http.createServer(async (req, res) => {
   sendJson(res, 404, { error: { message: "Not found" } });
 });
 
+server.on("error", (e) => {
+  // Surface startup errors to a file the Android side can read and show.
+  try {
+    const errFile = path.join(HOME, "minichat/error.log");
+    fs.writeFileSync(errFile, (e && e.stack) || String(e));
+  } catch (_) {}
+  console.error("server error:", e);
+});
+
 server.listen(PORT, "127.0.0.1", () => {
   console.log("minichat server on http://127.0.0.1:" + PORT);
 });
