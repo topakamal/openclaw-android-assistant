@@ -15,6 +15,7 @@ import android.webkit.WebViewClient
 import android.widget.EditText
 import android.widget.ProgressBar
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 
@@ -46,6 +47,9 @@ class MainActivity : AppCompatActivity() {
         requestBatteryOptimizationExemption()
         startForegroundService()
         setupWebView()
+        findViewById<android.view.View>(R.id.settingsButton).setOnClickListener {
+            showMercurySettingsDialog()
+        }
         startSetupFlow()
     }
 
@@ -326,6 +330,70 @@ class MainActivity : AppCompatActivity() {
             lock.wait(300_000)
         }
         return result
+    }
+
+    /**
+     * In-app Custom Endpoint settings: Base URL + API Key + Model.
+     * Saves to $HOME/.mercury.env, rewrites OpenClaw config, restarts gateway.
+     */
+    private fun showMercurySettingsDialog() {
+        val mercury = serverManager.readMercuryEnv()
+        val density = resources.displayMetrics.density
+        val padding = (24 * density).toInt()
+
+        val baseUrl = EditText(this).apply {
+            hint = getString(R.string.settings_base_url_hint)
+            setSingleLine(true)
+            setText(mercury["MERCURY_ENDPOINT"] ?: "")
+        }
+        val apiKey = EditText(this).apply {
+            hint = getString(R.string.settings_api_key_hint)
+            setSingleLine(true)
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setText(mercury["MERCURY_API_KEY"] ?: "")
+        }
+        val model = EditText(this).apply {
+            hint = getString(R.string.settings_model_hint)
+            setSingleLine(true)
+            setText(mercury["MERCURY_MODEL"] ?: "mercury-3")
+        }
+
+        val container = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(padding, padding / 2, padding, 0)
+            val lp = android.widget.LinearLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+            )
+            addView(baseUrl, lp)
+            addView(apiKey, lp)
+            addView(model, lp)
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.settings_title)
+            .setMessage(R.string.settings_message)
+            .setView(container)
+            .setPositiveButton(R.string.ok) { _, _ ->
+                val ep = baseUrl.text.toString().trim()
+                val key = apiKey.text.toString().trim()
+                val mdl = model.text.toString().trim().ifEmpty { "mercury-3" }
+                if (ep.isEmpty() || key.isEmpty()) {
+                    Toast.makeText(this, R.string.settings_invalid, Toast.LENGTH_LONG).show()
+                    return@setPositiveButton
+                }
+                Thread {
+                    serverManager.writeMercuryEnv(ep, key, mdl)
+                    serverManager.configureOpenClawAuth()
+                    serverManager.restartOpenClawGateway()
+                    runOnUiThread {
+                        Toast.makeText(this, R.string.settings_saved, Toast.LENGTH_LONG).show()
+                    }
+                }.start()
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
     }
 
     // ── UI helpers ──────────────────────────────────────────────────────────
