@@ -1105,7 +1105,9 @@ H3
         }
 
         val shell = "${paths.prefixDir}/bin/sh"
-        val cmd = "node ${serverJs.absolutePath} 2>&1"
+        val runLog = File(paths.homeDir, "minichat/run.log")
+        runLog.parentFile?.mkdirs()
+        val cmd = "node ${serverJs.absolutePath} > ${runLog.absolutePath} 2>&1"
         val pb = ProcessBuilder(shell, "-c", cmd)
         pb.environment().clear()
         pb.environment().putAll(env)
@@ -1138,14 +1140,20 @@ H3
             if (ok) return true
 
             // Process died or never listened — surface the real reason.
-            val errFile = File(paths.homeDir, "minichat/error.log")
-            if (errFile.exists()) {
-                val reason = errFile.readText().trim()
-                if (reason.isNotEmpty()) {
-                    throw IllegalStateException("Chat server failed to start: $reason")
-                }
+            var reason = ""
+            val runLogFile = File(paths.homeDir, "minichat/run.log")
+            if (runLogFile.exists()) {
+                reason = runLogFile.readText().trim()
             }
-            throw IllegalStateException("Chat server exited before listening (see logcat [minichat])")
+            if (reason.isEmpty()) {
+                val errFile = File(paths.homeDir, "minichat/error.log")
+                if (errFile.exists()) reason = errFile.readText().trim()
+            }
+            val exit = try { proc.exitValue() } catch (_: Exception) { -1 }
+            if (reason.isNotEmpty()) {
+                throw IllegalStateException("Chat server failed (exit $exit): $reason")
+            }
+            throw IllegalStateException("Chat server exited before listening (exit $exit)")
         } catch (e: Exception) {
             Log.e(TAG, "minichat server failed to start", e)
             if (e is IllegalStateException) throw e
