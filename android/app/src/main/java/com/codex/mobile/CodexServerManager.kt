@@ -1082,11 +1082,35 @@ H3
     }
 
     /**
+     * Copy the bundled libc++_shared.so into the Termux prefix lib dir.
+     * The Termux-built node binary needs the newer libc++ ABI symbol
+     * _ZNSt6__ndk113__hash_memoryEPKvm; the system libc++ is too old and
+     * fails to link otherwise. This is the same fix used on Hermes/Android.
+     */
+    private fun ensureLibCpp(): Boolean {
+        return try {
+            val paths = BootstrapInstaller.getPaths(context)
+            val target = File(paths.prefixDir, "lib/libc++_shared.so")
+            if (!target.exists()) {
+                copyAssetToFile("minichat/libc++_shared.so", target)
+            }
+            target.exists()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to install libc++_shared.so", e)
+            false
+        }
+    }
+
+    /**
      * Start the self-contained custom-endpoint chat server. It does not
      * depend on Codex or OpenClaw; it only needs Node.js (installed during
      * setup) and the Mercury custom-endpoint env.
      */
     fun startMinichatServer(): Boolean {
+        if (!ensureLibCpp()) {
+            Log.e(TAG, "libc++_shared.so not available")
+            return false
+        }
         val paths = BootstrapInstaller.getPaths(context)
         val serverJs = File(paths.homeDir, "minichat/server.js")
         if (!serverJs.exists() && !installMinichatAssets()) {
