@@ -189,12 +189,15 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Step 3: Install Codex CLI
+        // Step 3: Install Codex CLI (optional — required only for Codex/ChatGPT
+        // OAuth. In Mercury custom-endpoint mode the gateway + web UI run
+        // without the Codex CLI, so a failure here must not block setup.)
         if (!serverManager.isCodexInstalled()) {
             updateStatus("Installing Codex CLI…", "This may take a few minutes")
             val codexOk = serverManager.installCodex { msg -> updateDetail(msg) }
             if (!codexOk) {
-                throw RuntimeException("Failed to install Codex")
+                Log.w(TAG, "Codex CLI install failed — continuing (optional in Mercury mode)")
+                updateStatus("Codex CLI skipped (optional)")
             }
         }
 
@@ -205,12 +208,14 @@ class MainActivity : AppCompatActivity() {
         updateStatus("Updating web UI…")
         serverManager.installServerBundle { msg -> updateDetail(msg) }
 
-        // Step 3b: Install native platform binary
+        // Step 3b: Install native platform binary (optional — required only for
+        // Codex native CLI; not needed in Mercury custom-endpoint mode)
         if (!serverManager.isPlatformBinaryInstalled()) {
             updateStatus("Installing Codex platform binary…")
             val binOk = serverManager.installPlatformBinary { msg -> updateDetail(msg) }
             if (!binOk) {
-                throw RuntimeException("Failed to install Codex platform binary")
+                Log.w(TAG, "Codex platform binary install failed — continuing (optional)")
+                updateStatus("Codex platform binary skipped (optional)")
             }
         }
         updateStatus("Codex ready")
@@ -225,39 +230,46 @@ class MainActivity : AppCompatActivity() {
             throw RuntimeException("Failed to start network proxy")
         }
 
-        // Step 5: Authenticate via `codex login`
-        updateStatus("Checking authentication…")
-        if (!serverManager.isLoggedIn()) {
-            updateStatus("Login required — opening browser…")
-            val authOk = serverManager.loginWithUrl(
-                onLoginUrl = { url ->
-                    runOnUiThread {
-                        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        // Step 5: Authenticate. If Mercury custom endpoint is configured, skip
+        // Codex OAuth/API-key login entirely (the Mercury key is already in
+        // .mercury.env and used by the gateway's openai-compatible provider).
+        val mercuryConfigured = serverManager.isMercuryConfigured()
+        if (!mercuryConfigured) {
+            updateStatus("Checking authentication…")
+            if (!serverManager.isLoggedIn()) {
+                updateStatus("Login required — opening browser…")
+                val authOk = serverManager.loginWithUrl(
+                    onLoginUrl = { url ->
+                        runOnUiThread {
+                            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                        }
+                    },
+                    onProgress = { msg -> updateDetail(msg) },
+                )
+                if (!authOk && !serverManager.isLoggedIn()) {
+                    updateStatus("Browser login failed — enter API key manually")
+                    val apiKey = requestApiKey()
+                    if (apiKey.isBlank()) {
+                        throw RuntimeException("No API key provided")
                     }
-                },
-                onProgress = { msg -> updateDetail(msg) },
-            )
-            if (!authOk && !serverManager.isLoggedIn()) {
-                updateStatus("Browser login failed — enter API key manually")
-                val apiKey = requestApiKey()
-                if (apiKey.isBlank()) {
-                    throw RuntimeException("No API key provided")
-                }
-                val loginOk = serverManager.loginWithApiKey(apiKey)
-                if (!loginOk) {
-                    throw RuntimeException("Login failed — check your API key")
+                    val loginOk = serverManager.loginWithApiKey(apiKey)
+                    if (!loginOk) {
+                        throw RuntimeException("Login failed — check your API key")
+                    }
                 }
             }
-        }
-        updateStatus("Authenticated")
+            updateStatus("Authenticated")
 
-        // Step 6: Health check
-        updateStatus("Verifying API access…", "Sending test message")
-        val healthOk = serverManager.healthCheck { msg -> updateDetail(msg) }
-        if (!healthOk) {
-            throw RuntimeException("API health check failed — Codex could not reach OpenAI")
+            // Step 6: Health check (Codex path)
+            updateStatus("Verifying API access…", "Sending test message")
+            val healthOk = serverManager.healthCheck { msg -> updateDetail(msg) }
+            if (!healthOk) {
+                throw RuntimeException("API health check failed — Codex could not reach OpenAI")
+            }
+            updateStatus("API verified")
+        } else {
+            updateStatus("Mercury custom endpoint configured — skipping Codex login")
         }
-        updateStatus("API verified")
 
         // Step 7: Configure and start OpenClaw
         if (serverManager.isOpenClawInstalled()) {
