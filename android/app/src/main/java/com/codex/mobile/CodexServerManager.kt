@@ -746,6 +746,10 @@ H3
         openclawDir.mkdirs()
 
         val configFile = File(openclawDir, "openclaw.json")
+        val providerId = env["MERCURY_PROVIDER"]?.ifBlank { "inception" } ?: "inception"
+        val modelId = env["MERCURY_MODEL"]?.ifBlank { "mercury-3" } ?: "mercury-3"
+        val apiKey = env["MERCURY_API_KEY"]!!
+        val endpoint = env["MERCURY_ENDPOINT"]!!
         val configJson = """
             |{
             |  "meta": {
@@ -773,7 +777,20 @@ H3
             |  "agents": {
             |    "defaults": {
             |      "model": {
-            |        "primary": "openai/mercury-3"
+            |        "primary": "$providerId/$modelId"
+            |      }
+            |    }
+            |  },
+            |  "models": {
+            |    "mode": "merge",
+            |    "providers": {
+            |      "$providerId": {
+            |        "baseUrl": "$endpoint",
+            |        "apiKey": "$apiKey",
+            |        "api": "openai-completions",
+            |        "models": [
+            |          { "id": "$modelId", "name": "Mercury ${modelId}" }
+            |        ]
             |      }
             |    }
             |  }
