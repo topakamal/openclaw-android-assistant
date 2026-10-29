@@ -56,6 +56,7 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         serverManager.stopServer()
+        serverManager.stopMinichatServer()
         stopService(Intent(this, CodexForegroundService::class.java))
     }
 
@@ -185,19 +186,9 @@ class MainActivity : AppCompatActivity() {
         // Step 2c: Install bionic-compat.js (Android platform shim for Node.js)
         serverManager.ensureBionicCompat()
 
-        // Step 2d: Install OpenClaw
-        if (!serverManager.isOpenClawInstalled()) {
-            updateStatus("Installing build dependencies…")
-            serverManager.installOpenClawDeps { msg -> updateDetail(msg) }
-
-            updateStatus("Installing OpenClaw…", "This may take several minutes")
-            val openclawOk = serverManager.installOpenClaw { msg -> updateDetail(msg) }
-            if (!openclawOk) {
-                Log.w(TAG, "OpenClaw install failed — continuing without it")
-            } else {
-                updateStatus("OpenClaw installed")
-            }
-        }
+        // Step 2d: OpenClaw gateway is NOT required anymore — the app now uses
+        // the bundled custom-endpoint chat server (minichat), so we skip the
+        // heavy/ flaky openclaw npm install entirely.
 
         // Step 3: Install Codex CLI (optional — required only for Codex/ChatGPT
         // OAuth. In Mercury custom-endpoint mode the gateway + web UI run
@@ -284,30 +275,18 @@ class MainActivity : AppCompatActivity() {
             updateStatus("Mercury custom endpoint configured — skipping Codex login")
         }
 
-        // Step 7: Configure and start OpenClaw
-        if (serverManager.isOpenClawInstalled()) {
-            updateStatus("Configuring OpenClaw…")
-            serverManager.configureOpenClawAuth()
-
-            updateStatus("Starting OpenClaw gateway…")
-            serverManager.startOpenClawGateway()
-
-            updateStatus("Starting OpenClaw Control UI…")
-            serverManager.startOpenClawControlUiServer()
-        }
-
-        // Step 8: Show the OpenClaw Control UI as the in-app chat/web UI.
-        // No Codex server is needed — the Control UI talks to the gateway,
-        // which routes to the configured custom endpoint.
-        updateStatus("Starting Control UI…")
-        val uiStarted = serverManager.startOpenClawControlUiServer()
-        if (!uiStarted) {
-            Log.w(TAG, "Control UI failed to start — continuing")
+        // Step 7: Start the self-contained custom-endpoint chat server.
+        // No Codex / OpenClaw gateway required — the bundled Node server talks
+        // directly to the configured custom endpoint.
+        updateStatus("Starting chat server…")
+        val started = serverManager.startMinichatServer()
+        if (!started) {
+            throw RuntimeException("Failed to start chat server")
         }
         runOnUiThread {
             showLoading(false)
             webView.visibility = View.VISIBLE
-            webView.loadUrl(serverManager.controlUiBaseUrl())
+            webView.loadUrl(serverManager.minichatBaseUrl())
         }
     }
 
