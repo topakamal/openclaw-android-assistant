@@ -1049,6 +1049,13 @@ H3
     }
 
     /**
+     * Base URL of the OpenClaw Control UI, used as the in-app chat/web UI.
+     * The Control UI talks directly to the local gateway (which routes to the
+     * configured custom endpoint), so no Codex server is required.
+     */
+    fun controlUiBaseUrl(): String = "http://127.0.0.1:$OPENCLAW_CONTROL_UI_PORT"
+
+    /**
      * Start a lightweight Node.js static file server to serve the OpenClaw
      * Control UI on [OPENCLAW_CONTROL_UI_PORT]. The UI assets live inside
      * the installed openclaw npm package at dist/control-ui/.
