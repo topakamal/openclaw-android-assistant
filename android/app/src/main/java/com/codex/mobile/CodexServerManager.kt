@@ -717,7 +717,7 @@ H3
      * Read optional Mercury custom-provider settings from $HOME/.mercury.env.
      * Lines: MERCURY_ENDPOINT=... and MERCURY_API_KEY=...
      */
-    private fun readMercuryEnv(): Map<String, String> {
+    fun readMercuryEnv(): Map<String, String> {
         val paths = BootstrapInstaller.getPaths(context)
         val envFile = File(paths.homeDir, ".mercury.env")
         if (!envFile.exists()) return emptyMap()
@@ -732,6 +732,33 @@ H3
             return emptyMap()
         }
         return out
+    }
+
+    /**
+     * Write Mercury custom-provider settings to $HOME/.mercury.env.
+     * Called by the in-app Custom Endpoint settings dialog.
+     */
+    fun writeMercuryEnv(
+        endpoint: String,
+        apiKey: String,
+        model: String = "mercury-3",
+        provider: String = "inception",
+    ): Boolean {
+        return try {
+            val paths = BootstrapInstaller.getPaths(context)
+            val envFile = File(paths.homeDir, ".mercury.env")
+            val content = buildString {
+                appendLine("MERCURY_ENDPOINT=$endpoint")
+                appendLine("MERCURY_API_KEY=$apiKey")
+                appendLine("MERCURY_MODEL=$model")
+                appendLine("MERCURY_PROVIDER=$provider")
+            }
+            envFile.writeText(content)
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to write Mercury env", e)
+            false
+        }
     }
 
     fun isMercuryConfigured(): Boolean = readMercuryEnv().isNotEmpty()
@@ -1005,6 +1032,20 @@ H3
         Thread.sleep(5000)
         Log.i(TAG, "OpenClaw gateway started on port $OPENCLAW_GATEWAY_PORT")
         return true
+    }
+
+    /**
+     * Restart the OpenClaw gateway so config/env changes (e.g. a new
+     * Mercury custom endpoint) take effect without a full app restart.
+     */
+    fun restartOpenClawGateway(): Boolean {
+        try {
+            openClawGatewayProcess?.destroy()
+            openClawGatewayProcess = null
+        } catch (_: Exception) {
+        }
+        Thread.sleep(1500)
+        return startOpenClawGateway()
     }
 
     /**
