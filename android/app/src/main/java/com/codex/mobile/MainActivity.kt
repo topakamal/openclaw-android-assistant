@@ -234,10 +234,11 @@ class MainActivity : AppCompatActivity() {
         serverManager.ensureFullAccessConfig()
         serverManager.ensureDefaultWorkspace()
 
-        // Step 4: Start CONNECT proxy (needed for native binary DNS/TLS)
+        // Step 4: Start CONNECT proxy (optional — only needed by native Codex
+        // binary; not required for the gateway/Control UI path).
         updateStatus("Starting network proxy…")
         if (!serverManager.startProxy()) {
-            throw RuntimeException("Failed to start network proxy")
+            Log.w(TAG, "Failed to start network proxy — continuing (optional)")
         }
 
         // Step 5: Authenticate. If Mercury custom endpoint is configured, skip
@@ -295,25 +296,18 @@ class MainActivity : AppCompatActivity() {
             serverManager.startOpenClawControlUiServer()
         }
 
-        // Step 8: Start web server
-        updateStatus("Starting server…")
-        val started = serverManager.startServer()
-        if (!started) {
-            throw RuntimeException("Failed to start server")
+        // Step 8: Show the OpenClaw Control UI as the in-app chat/web UI.
+        // No Codex server is needed — the Control UI talks to the gateway,
+        // which routes to the configured custom endpoint.
+        updateStatus("Starting Control UI…")
+        val uiStarted = serverManager.startOpenClawControlUiServer()
+        if (!uiStarted) {
+            Log.w(TAG, "Control UI failed to start — continuing")
         }
-
-        // Step 9: Wait for ready
-        updateStatus("Waiting for server…")
-        val ready = serverManager.waitForServer(timeoutMs = 90_000)
-        if (!ready) {
-            throw RuntimeException("Server did not start in time")
-        }
-
-        // Step 10: Show web UI
         runOnUiThread {
             showLoading(false)
             webView.visibility = View.VISIBLE
-            webView.loadUrl("http://127.0.0.1:${CodexServerManager.SERVER_PORT}/")
+            webView.loadUrl(serverManager.controlUiBaseUrl())
         }
     }
 
