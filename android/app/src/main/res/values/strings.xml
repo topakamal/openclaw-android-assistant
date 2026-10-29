@@ -16,4 +16,11 @@
     <string name="error_bootstrap">Failed to set up the environment. Please try again.</string>
     <string name="error_server">Failed to start the server.</string>
     <string name="retry">Retry</string>
+    <string name="settings_title">Custom Endpoint</string>
+    <string name="settings_message">Route the agent to any OpenAI-compatible endpoint (Base URL + API Key + Model).</string>
+    <string name="settings_base_url_hint">Base URL (https://…/v1)</string>
+    <string name="settings_api_key_hint">API Key</string>
+    <string name="settings_model_hint">Model (default mercury-3)</string>
+    <string name="settings_saved">Applied — gateway restarted</string>
+    <string name="settings_invalid">Base URL and API Key cannot be empty</string>
 </resources>
