@@ -29,7 +29,7 @@ class CodexServerManager(private val context: Context) {
     private var serverProcess: Process? = null
     private var proxyProcess: Process? = null
     private var openClawGatewayProcess: Process? = null
-    private var minichatProcess: Process? = null
+    private var minichat: MinichatServer? = null
     private var openClawControlUiProcess: Process? = null
 
     val isRunning: Boolean
@@ -1082,121 +1082,31 @@ H3
     }
 
     /**
-     * Copy the bundled libc++_shared.so into the Termux prefix lib dir.
-     * The Termux-built node binary needs the newer libc++ ABI symbol
-     * _ZNSt6__ndk113__hash_memoryEPKvm; the system libc++ is too old and
-     * fails to link otherwise. This is the same fix used on Hermes/Android.
-     */
-    private fun ensureLibCpp(): Boolean {
-        return try {
-            val paths = BootstrapInstaller.getPaths(context)
-            val target = File(paths.prefixDir, "lib/libc++_shared.so")
-            if (!target.exists()) {
-                copyAssetToFile("minichat/libc++_shared.so", target)
-            }
-            target.exists()
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to install libc++_shared.so", e)
-            false
-        }
-    }
-
-    /**
-     * Start the self-contained custom-endpoint chat server. It does not
-     * depend on Codex or OpenClaw; it only needs Node.js (installed during
-     * setup) and the Mercury custom-endpoint env.
+     * Start the self-contained custom-endpoint chat server, implemented in
+     * pure Kotlin (MinichatServer) so it does not depend on Node.js or any
+     * native binary that may fail to link on Android.
      */
     fun startMinichatServer(): Boolean {
-        if (!ensureLibCpp()) {
-            Log.e(TAG, "libc++_shared.so not available")
-            return false
-        }
-        val paths = BootstrapInstaller.getPaths(context)
-        val serverJs = File(paths.homeDir, "minichat/server.js")
-        if (!serverJs.exists() && !installMinichatAssets()) {
-            Log.e(TAG, "minichat server.js missing")
-            return false
-        }
-        if (!serverJs.exists()) return false
-
-        val env = buildEnvironment(paths).toMutableMap()
-        env["MINICHAT_PORT"] = MINICHAT_PORT.toString()
-        val mercury = readMercuryEnv()
-        if (mercury.isNotEmpty()) {
-            env["MERCURY_ENDPOINT"] = mercury["MERCURY_ENDPOINT"]!!
-            env["MERCURY_API_KEY"] = mercury["MERCURY_API_KEY"]!!
-            env["MERCURY_MODEL"] = mercury["MERCURY_MODEL"] ?: "mercury-3"
-        }
-
-        val shell = "${paths.prefixDir}/bin/sh"
-        val runLog = File(paths.homeDir, "minichat/run.log")
-        runLog.parentFile?.mkdirs()
-        // Force-load the bundled newer libc++_shared.so via LD_PRELOAD so the
-        // Termux-built node can resolve _ZNSt6__ndk113__hash_memoryEPKvm even
-        // when the platform linker prefers the older system libc++.
-        val libcxx = "${paths.prefixDir}/lib/libc++_shared.so"
-        val termuxExec = "${paths.prefixDir}/lib/libtermux-exec.so"
-        val preload = listOfNotNull(libcxx, termuxExec).joinToString(":")
-        val cmd = "export LD_LIBRARY_PATH=${paths.prefixDir}/lib; export LD_PRELOAD=\"$preload\"; exec node ${serverJs.absolutePath} > ${runLog.absolutePath} 2>&1"
-        val pb = ProcessBuilder(shell, "-c", cmd)
-        pb.environment().clear()
-        pb.environment().putAll(env)
-        pb.directory(File(paths.homeDir))
-        pb.redirectErrorStream(true)
-
-        try {
-            val proc = pb.start()
-            minichatProcess = proc
-            Thread {
-                val reader = BufferedReader(InputStreamReader(proc.inputStream))
-                var line = reader.readLine()
-                while (line != null) {
-                    Log.d(TAG, "[minichat] $line")
-                    line = reader.readLine()
-                }
-            }.start()
-
-            // Wait until the port actually accepts connections (or process dies).
-            var ok = false
-            for (attempt in 1..15) {
-                if (!proc.isAlive) break
-                try {
-                    java.net.Socket("127.0.0.1", MINICHAT_PORT).use { ok = true }
-                    if (ok) break
-                } catch (_: Exception) {
-                }
-                Thread.sleep(400)
+        return try {
+            val srv = MinichatServer(context)
+            if (srv.start()) {
+                minichat = srv
+                true
+            } else {
+                false
             }
-            if (ok) return true
-
-            // Process died or never listened — surface the real reason.
-            var reason = ""
-            val runLogFile = File(paths.homeDir, "minichat/run.log")
-            if (runLogFile.exists()) {
-                reason = runLogFile.readText().trim()
-            }
-            if (reason.isEmpty()) {
-                val errFile = File(paths.homeDir, "minichat/error.log")
-                if (errFile.exists()) reason = errFile.readText().trim()
-            }
-            val exit = try { proc.exitValue() } catch (_: Exception) { -1 }
-            if (reason.isNotEmpty()) {
-                throw IllegalStateException("Chat server failed (exit $exit): $reason")
-            }
-            throw IllegalStateException("Chat server exited before listening (exit $exit)")
         } catch (e: Exception) {
             Log.e(TAG, "minichat server failed to start", e)
-            if (e is IllegalStateException) throw e
-            return false
+            false
         }
     }
 
     fun stopMinichatServer() {
         try {
-            minichatProcess?.destroy()
+            minichat?.stop()
         } catch (_: Exception) {
         }
-        minichatProcess = null
+        minichat = null
     }
 
     fun minichatBaseUrl(): String = "http://127.0.0.1:$MINICHAT_PORT"
