@@ -1131,7 +1131,13 @@ H3
         val shell = "${paths.prefixDir}/bin/sh"
         val runLog = File(paths.homeDir, "minichat/run.log")
         runLog.parentFile?.mkdirs()
-        val cmd = "node ${serverJs.absolutePath} > ${runLog.absolutePath} 2>&1"
+        // Force-load the bundled newer libc++_shared.so via LD_PRELOAD so the
+        // Termux-built node can resolve _ZNSt6__ndk113__hash_memoryEPKvm even
+        // when the platform linker prefers the older system libc++.
+        val libcxx = "${paths.prefixDir}/lib/libc++_shared.so"
+        val termuxExec = "${paths.prefixDir}/lib/libtermux-exec.so"
+        val preload = listOfNotNull(libcxx, termuxExec).joinToString(":")
+        val cmd = "export LD_LIBRARY_PATH=${paths.prefixDir}/lib; export LD_PRELOAD=\"$preload\"; exec node ${serverJs.absolutePath} > ${runLog.absolutePath} 2>&1"
         val pb = ProcessBuilder(shell, "-c", cmd)
         pb.environment().clear()
         pb.environment().putAll(env)
