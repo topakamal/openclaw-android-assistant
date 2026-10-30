@@ -201,7 +201,7 @@ class MinichatServer(private val context: Context) {
             conn.setRequestProperty("Content-Type", "application/json")
             conn.setRequestProperty("Authorization", "Bearer " + cfg.apiKey)
             conn.doOutput = true
-            conn.fixedLengthStreamingMode(body.size)
+            conn.setFixedLengthStreamingMode(body.size)
             conn.outputStream.use { os ->
                 os.write(body)
                 os.flush()
